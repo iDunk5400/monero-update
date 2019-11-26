@@ -156,6 +156,7 @@ static const char *get_state_name(State state)
 Updater::Updater(QObject *parent):
   QObject(parent),
   state(StateNone),
+  next_state(StateNone),
   dnsValid(TriState::TriUnknown),
   hashValid(TriState::TriUnknown),
   validGitianSigs(0),
@@ -174,7 +175,8 @@ Updater::Updater(QObject *parent):
   gitian_pubkeys_import_done(false),
   gitian_pubkeys_import_success(false),
   gitian_verify_sigs_done(false),
-  gitian_verify_sigs_success(false)
+  gitian_verify_sigs_success(false),
+  bad_gitian_signature_found(false)
 {
   running = true;
   thread = boost::thread([this]() { updater_thread(); } );
@@ -425,6 +427,24 @@ void Updater::retryDownload()
 {
   if (state == StateDownloadFailed)
     set_state(StateDownload);
+}
+
+void Updater::select(const QString &qs)
+{
+  std::string s = qs.toStdString();
+  if (s == "gui")
+  {
+    software = "monero-gui";
+    set_state(StateQueryDNS);
+    return;
+  }
+  if (s == "cli")
+  {
+    software = "monero";
+    set_state(StateQueryDNS);
+    return;
+  }
+  MERROR("Invalid selection: " << s);
 }
 
 void Updater::check_hash()
@@ -685,6 +705,7 @@ void Updater::fetch_gitian_sigs()
 
   gitian_verify_sigs_success = false;
   gitian_verify_sigs_success = false;
+  bad_gitian_signature_found = false;
 
   setTotalGitianSigs(0);
   setProcessedGitianSigs(0);
@@ -740,7 +761,6 @@ void Updater::fetch_gitian_sigs()
 
   setValidGitianSigs(0);
   setMinValidGitianSigs(MIN_GITIAN_SIGS);
-  bool bad_signature_found = false;
   std::vector<std::string> users;
   idx = 0;
   std::string link_prefix = "href=\"" + base_tree_url_path;
@@ -762,8 +782,8 @@ void Updater::fetch_gitian_sigs()
   if (users.empty())
   {
     lock.lock();
-  gitian_verify_sigs_done = true;
-  gitian_verify_sigs_success = false;
+    gitian_verify_sigs_done = true;
+    gitian_verify_sigs_success = false;
     add_message("No Gitian signatures found");
     lock.unlock();
     set_state(StateNoGitianSigs);
@@ -842,7 +862,7 @@ void Updater::fetch_gitian_sigs()
           lock.lock();
           add_message("Bad Gitian signature from " + user);
           lock.unlock();
-          bad_signature_found = true;
+          bad_gitian_signature_found = true;
         }
         else
         {
@@ -862,7 +882,7 @@ void Updater::fetch_gitian_sigs()
   boost::filesystem::remove_all(gpg_home.string(), ec);
   lock.lock();
   gitian_verify_sigs_done = true;
-  gitian_verify_sigs_success = validGitianSigs >= MIN_GITIAN_SIGS && !bad_signature_found;
+  gitian_verify_sigs_success = validGitianSigs >= MIN_GITIAN_SIGS && !bad_gitian_signature_found;
 }
 
 void Updater::add_message(const std::string &s)
@@ -882,13 +902,11 @@ void Updater::updater_thread()
         break;
     }
 
-    sleep(1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    change_state();
 
     switch (state)
     {
-    case StateInit:
-      set_state(StateQueryDNS);
-      break;
     case StateQueryDNS:
       if (!dns_query_done)
         break;
@@ -926,7 +944,7 @@ void Updater::updater_thread()
         break;
       if (gitian_verify_sigs_success)
         set_state(StateDownload);
-      else if (validGitianSigs > 0)
+      else if (!bad_gitian_signature_found)
         set_state(StateNotEnoughGitianSigs);
       else
         set_state(StateBadGitianSigs);
@@ -954,19 +972,40 @@ void Updater::set_state(State s)
 {
   {
     boost::unique_lock<boost::mutex> lock(mutex);
-    state = s;
+    next_state = s;
   }
-  emit stateChanged(get_state_name(state));
-  emit stateOutcomeChanged(get_state_outcome(state));
-  switch (state)
+}
+
+void Updater::change_state()
+{
+  State s = StateNone;
+  bool selecting = false;
+  {
+    boost::unique_lock<boost::mutex> lock(mutex);
+    if (state == next_state)
+      return;
+    state = next_state;
+    s = state;
+    selecting = getSelecting();
+  }
+
+  emit stateChanged(get_state_name(s));
+  emit stateOutcomeChanged(get_state_outcome(s));
+  emit selectingChanged(selecting);
+
+  switch (s)
   {
     case StateInit:
-      dns_query_done = false;
-      version_check_done = false;
-      setDnsValid(TriState::TriUnknown);
-      setHashValid(TriState::TriUnknown);
-      setValidGitianSigs(0);
-      setMinValidGitianSigs(0);
+      {
+        boost::unique_lock<boost::mutex> lock(mutex);
+        dns_query_done = false;
+        version_check_done = false;
+        setDnsValid(TriState::TriUnknown);
+        setHashValid(TriState::TriUnknown);
+        setValidGitianSigs(0);
+        setMinValidGitianSigs(0);
+        bad_gitian_signature_found = false;
+      }
       break;
     case StateQueryDNS:
       load_txt_records_from_dns(dns_urls, dns_query_results, good_dns_records);
@@ -1040,4 +1079,9 @@ uint32_t Updater::getProcessedGitianSigs() const
 uint32_t Updater::getTotalGitianSigs() const
 {
   return totalGitianSigs;
+}
+
+bool Updater::getSelecting() const
+{
+  return state == StateInit;
 }

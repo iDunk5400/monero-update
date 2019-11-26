@@ -83,6 +83,7 @@ class Updater: public QObject
   Q_PROPERTY(uint32_t processedGitianSigs READ getProcessedGitianSigs NOTIFY processedGitianSigsChanged)
   Q_PROPERTY(uint32_t totalGitianSigs READ getTotalGitianSigs NOTIFY totalGitianSigsChanged)
   Q_PROPERTY(TriState::tristate_t stateOutcome READ getStateOutcome NOTIFY stateOutcomeChanged)
+  Q_PROPERTY(bool selecting READ getSelecting NOTIFY selectingChanged)
 
 public:
   explicit Updater(QObject *parent = nullptr);
@@ -99,8 +100,10 @@ public:
   uint32_t getTotalGitianSigs() const;
   uint32_t getProcessedGitianSigs() const;
   TriState::tristate_t getStateOutcome() const;
+  bool getSelecting() const;
 
   Q_INVOKABLE void retryDownload();
+  Q_INVOKABLE void select(const QString &selection);
 
 private:
   void updater_thread();
@@ -121,6 +124,7 @@ private:
   void import_pubkeys();
   void fetch_gitian_sigs();
   tristate_t verify_gitian_signature(const std::string &contents, const std::string &signature, std::string &fingerprint);
+  void change_state();
 
 signals:
   void stateChanged(const QString &state);
@@ -137,6 +141,7 @@ signals:
   void downloadStarted();
   void downloadFinished(bool success);
   void validUpdateReady(const QString &filename);
+  void selectingChanged(bool s);
 
 private:
   bool running;
@@ -145,6 +150,7 @@ private:
   boost::thread thread;
 
   State state;
+  State next_state;
   std::vector<dns_query_result_t> dns_query_results;
   std::vector<std::string> good_dns_records;
   std::vector<std::string> messages;
@@ -170,6 +176,7 @@ private:
   bool gitian_pubkeys_import_success;
   bool gitian_verify_sigs_done;
   bool gitian_verify_sigs_success;
+  bool bad_gitian_signature_found;
 
   boost::filesystem::path download_path;
   tools::download_async_handle download_handle;

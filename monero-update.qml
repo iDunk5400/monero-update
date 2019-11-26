@@ -30,8 +30,10 @@ ApplicationWindow {
   id: root
   visible: true
   width: header.implicitWidth * 1.2
+  property string orange: "#ff6c3c"
 
   property double scale: 1.15
+  property double selectAnimDuration: 300
 
   function bytes_str(bytes, add_unit) {
     var unit_string = add_unit == null ? "" : add_unit < 1024 ? " bytes" : add_unit < 1024 * 1024 ? " kB" : add_unit < 1024 * 1024 * 1024 ? " MB" : " GB"
@@ -66,6 +68,7 @@ ApplicationWindow {
   // UI
   ColumnLayout {
     id: main
+    visible: !updater.selecting
     anchors.fill: parent
 
     RowLayout {
@@ -199,6 +202,139 @@ ApplicationWindow {
 
     Item {
       Layout.bottomMargin: 2
+    }
+  }
+
+  ColumnLayout {
+    id: typeSelection
+    visible: updater.selecting
+    anchors.fill: main
+
+    RowLayout {
+      Layout.fillWidth: true
+      Layout.leftMargin: 8
+      Layout.rightMargin: 8
+      ColumnLayout {
+        Text {
+          Layout.leftMargin: defaultText.height * 2
+          font.pixelSize: defaultText.font.pixelSize * 1.4
+          text: "<font size=+2><b>monero-update</b></font> - A secure updater/installer for <img src=\"qrc:///content/monero48.png\" height=" + font.pixelSize + ">onero"
+          textFormat: Text.RichText
+          topPadding: defaultText.font.pixelSize / 2
+          bottomPadding: defaultText.font.pixelSize / 2
+        }
+      }
+    }
+
+    Text {
+      Layout.leftMargin: 24
+      Layout.rightMargin: 16
+      text: "Which version do you want to download:"
+      font.pointSize: defaultText.font.pointSize * 1.3
+      textFormat: Text.RichText
+    }
+
+    GroupBox {
+      id: selectGUI
+      Layout.fillWidth: true
+      Layout.topMargin: 8
+      Layout.leftMargin: 8
+      Layout.rightMargin: 8
+      property string color: { if (selectGUIMouse.containsMouse) return root.orange; return defaultText.color }
+      property bool bold: selectGUIMouse.containsMouse
+      property int weight: { if (selectGUIMouse.containsMouse) return Font.Black; return Font.Normal }
+      Rectangle {
+        anchors.fill: selectGUIMouse
+        color: { if (selectGUIMouse.containsMouse) return "#208080ff"; return "#00000000"; }
+        Behavior on color { ColorAnimation { duration: root.selectAnimDuration; easing.type: Easing.InOutQuad } }
+      }
+      ColumnLayout {
+        id: selectGUILayout
+        width: parent.width
+        Text {
+          Layout.topMargin: 8
+          Layout.leftMargin: 8 + selectGUIMouse.containsMouse * 32
+          Layout.rightMargin: 8
+          text: "Monero GUI wallet"
+          font.pointSize: defaultText.font.pointSize * 1.3
+          font.weight: selectGUI.weight
+          textFormat: Text.RichText
+          color: selectGUI.color
+          Behavior on Layout.leftMargin { NumberAnimation { duration: root.selectAnimDuration; easing.type: Easing.InOutQuad } }
+          Behavior on font.weight { NumberAnimation { duration: root.selectAnimDuration; easing.type: Easing.InOutQuad } }
+        }
+        Text {
+          Layout.leftMargin: 8
+          Layout.rightMargin: 8
+          text: "This is the user friendly graphical user interface."
+          font.bold: selectGUI.bold
+          textFormat: Text.RichText
+          color: selectGUI.color
+        }
+        Text {
+          Layout.leftMargin: 8
+          Layout.rightMargin: 8
+          Layout.bottomMargin: 8
+          text: "If unsure, select this."
+          font.bold: selectGUI.bold
+          textFormat: Text.RichText
+          color: selectGUI.color
+        }
+      }
+      MouseArea {
+        id: selectGUIMouse
+        hoverEnabled: true
+        anchors.fill: selectGUILayout
+        onClicked: updater.select("gui")
+      }
+    }
+
+    GroupBox {
+      id: selectCLI
+      Layout.fillWidth: true
+      Layout.leftMargin: 8
+      Layout.rightMargin: 8
+      Layout.bottomMargin: 16
+      property string color: { if (selectCLIMouse.containsMouse) return root.orange; return defaultText.color }
+      property bool bold: selectCLIMouse.containsMouse
+      property int weight: { if (selectCLIMouse.containsMouse) return Font.Black; return Font.Normal }
+      Rectangle {
+        anchors.fill: selectCLIMouse
+        color: { if (selectCLIMouse.containsMouse) return "#208080ff"; return "#00000000"; }
+        Behavior on color { ColorAnimation { duration: root.selectAnimDuration; easing.type: Easing.InOutQuad } }
+      }
+      ColumnLayout {
+        id: selectCLILayout
+        width: parent.width
+        Text {
+          Layout.leftMargin: 8 + selectCLIMouse.containsMouse * 32
+          Layout.rightMargin: 8
+          Layout.topMargin: 8
+          text: "Command line tools"
+          font.pointSize: defaultText.font.pointSize * 1.3
+          font.weight: selectCLI.weight
+          textFormat: Text.RichText
+          color: selectCLI.color
+          Behavior on Layout.leftMargin { NumberAnimation { duration: root.selectAnimDuration; easing.type: Easing.InOutQuad } }
+          Behavior on font.weight { NumberAnimation { duration: root.selectAnimDuration; easing.type: Easing.InOutQuad } }
+        }
+        Text {
+          Layout.leftMargin: 8
+          Layout.rightMargin: 8
+          Layout.bottomMargin: 8
+          text: "This is the set of text based tools, usually meant for command line users."
+          font.pointSize: defaultText.font.pointSize
+          font.bold: selectCLI.bold
+          textFormat: Text.RichText
+          color: selectCLI.color
+        }
+      }
+      MouseArea {
+        id: selectCLIMouse
+        hoverEnabled: true
+        anchors.fill: selectCLILayout
+        onClicked: updater.select("cli")
+      }
     }
   }
 
