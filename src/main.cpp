@@ -22,12 +22,24 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QtPlugin>
 #include "misc_log_ex.h"
 #include "string_tools.h"
 #include "updater.h"
 
 Q_DECLARE_METATYPE(uint32_t)
 Q_DECLARE_METATYPE(std::string)
+
+#if defined(USE_STATIC_QT)
+Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)
+Q_IMPORT_PLUGIN(QtQuick2Plugin)
+Q_IMPORT_PLUGIN(QtQuickControls1Plugin)
+Q_IMPORT_PLUGIN(QtQuickExtrasStylesPlugin)
+Q_IMPORT_PLUGIN(QtQuickLayoutsPlugin)
+Q_IMPORT_PLUGIN(QtQuick2WindowPlugin)
+Q_IMPORT_PLUGIN(QtGraphicalEffectsPlugin)
+Q_IMPORT_PLUGIN(QtGraphicalEffectsPrivatePlugin)
+#endif
 
 int main(int argc, char **argv)
 {

@@ -58,32 +58,23 @@ set(monero_update_sources
 set(monero_update_headers
 )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_FLAG} ${WARNINGS} ${C_WARNINGS} ${COVERAGE_FLAGS} ${PIC_FLAG} ${C_SECURITY_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_CPP_FLAG} ${WARNINGS} ${CXX_WARNINGS} ${COVERAGE_FLAGS} ${PIC_FLAG} ${CXX_SECURITY_FLAGS}")
-
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
-
-find_package(Qt5 COMPONENTS Core Gui Quick Qml Widgets)
+find_package(Qt5 COMPONENTS Core Gui Network Quick Qml Widgets REQUIRED)
 
 include_directories(src/epee/include)
 include_directories(src/easylogging++)
 include_directories(src)
 
-if(STATIC)
-  # STATIC already configures most deps to be linked in statically,
-  # here we make more deps static if the platform permits it
-  set(Qt5_USE_STATIC_LIBS ON)
-  set(Qt5_USE_STATIC_RUNTIME ON)
-  if (MINGW)
-    # On Windows, this is as close to fully-static as we get:
-    # this leaves only deps on /c/Windows/system32/*.dll
-    set(STATIC_FLAGS "-static")
-  elseif (NOT (APPLE OR FREEBSD OR OPENBSD OR DRAGONFLY))
-    # On Linux, we don't support fully static build, but these can be static
-    set(STATIC_FLAGS "-static-libgcc -static-libstdc++")
-  endif()
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${STATIC_FLAGS} ")
+if(MINGW)
+  string(REGEX MATCH "^[^/]:/[^/]*" msys2_install_path "${CMAKE_C_COMPILER}")
+  message(STATUS "MSYS location: ${msys2_install_path}")
+  set(CMAKE_INCLUDE_PATH "${msys2_install_path}/mingw${ARCH_WIDTH}/include")
+  # This is necessary because otherwise CMake will make Boost libraries -lfoo
+  # rather than a full path. Unfortunately, this makes the shared libraries get
+  # linked due to a bug in CMake which misses putting -static flags around the
+  # -lfoo arguments.
+  set(DEFLIB ${msys2_install_path}/mingw${ARCH_WIDTH}/lib)
+  list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_DIRECTORIES ${DEFLIB})
+  list(REMOVE_ITEM CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES ${DEFLIB})
 endif()
 
 if (NOT DEFINED ENV{DEVELOPER_LOCAL_TOOLS})
@@ -107,6 +98,7 @@ endif()
 set(OLD_LIB_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
 set(Boost_NO_BOOST_CMAKE ON)
 if(STATIC)
+  set(OPENSSL_USE_STATIC_LIBS ON)
   if(MINGW)
     set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
   endif()
@@ -114,7 +106,7 @@ if(STATIC)
   set(Boost_USE_STATIC_LIBS ON)
   set(Boost_USE_STATIC_RUNTIME ON)
 endif()
-find_package(Boost 1.58 QUIET REQUIRED COMPONENTS system filesystem thread date_time chrono regex serialization program_options locale)
+find_package(Boost 1.58 QUIET REQUIRED COMPONENTS system filesystem thread chrono regex)
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${OLD_LIB_SUFFIXES})
 if(NOT Boost_FOUND)
@@ -200,6 +192,7 @@ endif()
 if(MINGW)
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wa,-mbig-obj")
   set(EXTRA_LIBRARIES mswsock;ws2_32;iphlpapi;crypt32;bcrypt)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--nxcompat -Wl,--dynamicbase -Wl,--high-entropy-va")
   if(DEPENDS)
     set(ICU_LIBRARIES icuio icui18n icuuc icudata icutu iconv)
   else()
@@ -221,6 +214,29 @@ endif()
 
 list(APPEND EXTRA_LIBRARIES ${CMAKE_DL_LIBS})
 
+if(STATIC)
+  # STATIC already configures most deps to be linked in statically,
+  # here we make more deps static if the platform permits it
+  set(Qt5_USE_STATIC_LIBS ON)
+  set(Qt5_USE_STATIC_RUNTIME ON)
+  add_definitions("-DUSE_STATIC_QT")
+  add_definitions("-DQT_STATICPLUGIN")
+  set(CMAKE_AUTOSTATICPLUGINS ON)
+  if (MINGW)
+    # On Windows, this is as close to fully-static as we get:
+    # this leaves only deps on /c/Windows/system32/*.dll
+    set(STATIC_FLAGS "-Wl,-Bstatic -static")
+    set(MSYS2_QML_STATIC_PATH /mingw64/qt5-static/share/qt5/qml)
+    link_directories(${MSYS2_QML_STATIC_PATH}/QtQuick.2 ${MSYS2_QML_STATIC_PATH}/QtQuick/Controls ${MSYS2_QML_STATIC_PATH}/QtQuick/Controls/Styles/Flat ${MSYS2_QML_STATIC_PATH}/QtQuick/Layouts ${MSYS2_QML_STATIC_PATH}/QtQuick/Window.2 ${MSYS2_QML_STATIC_PATH}/QtGraphicalEffects ${MSYS2_QML_STATIC_PATH}/QtGraphicalEffects/private)
+    set(QT5_STATICLIBS qtquick2plugin qtquickcontrolsplugin qtquickextrasflatplugin qquicklayoutsplugin windowplugin qtgraphicaleffectsplugin qtgraphicaleffectsprivate Qt5::QWindowsIntegrationPlugin)
+  elseif (NOT (APPLE OR FREEBSD OR OPENBSD OR DRAGONFLY))
+    # On Linux, we don't support fully static build, but these can be static
+    set(STATIC_FLAGS "${STATIC_FLAGS} -static-libgcc -static-libstdc++")
+  endif()
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${STATIC_FLAGS}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_STATIC_QT=1")
+endif()
+
 find_package(GPGME REQUIRED)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -W -Wno-unused-parameter -O2")
@@ -237,10 +253,17 @@ link_directories(${UNBOUND_LIBRARY_DIRS})
 include_directories(${GPGME_INCLUDE})
 link_directories(${GPGME_LIBRARY_DIRS})
 
+
 # Set some Win32 Specific settings
 if(WIN32)
 set(GUI_TYPE WIN32)
 endif(WIN32)
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_FLAG} ${WARNINGS} ${C_WARNINGS} ${COVERAGE_FLAGS} ${PIC_FLAG} ${C_SECURITY_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_CPP_FLAG} ${WARNINGS} ${CXX_WARNINGS} ${COVERAGE_FLAGS} ${PIC_FLAG} ${CXX_SECURITY_FLAGS}")
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 
 add_executable(monero-update
   ${GUI_TYPE}
@@ -251,11 +274,19 @@ if(NOT GPGME_VANILLA_LIBRARIES)
   message(FATAL_ERROR "Vanilla gpgme library not found")
 endif()
 
+if(STATIC)
+  set(LINK_OPT_BSTATIC "-Wl,-Bstatic")
+  set(LINK_OPT_STATIC "-static")
+  set(LINK_QT5_STATICLIBS "${QT5_STATICLIBS}")
+endif()
+
 target_link_libraries(monero-update
+  PRIVATE
   Qt5::Core
   Qt5::Gui
   Qt5::Qml
   Qt5::Quick
+  Qt5::Network
   Qt5::Widgets
   ${Boost_FILESYSTEM_LIBRARY}
   ${Boost_REGEX_LIBRARY}
@@ -264,9 +295,12 @@ target_link_libraries(monero-update
   ${Boost_SYSTEM_LIBRARY}
   ${GPGME_VANILLA_LIBRARIES}
   ${UNBOUND_LIBRARY}
+  PUBLIC
+  ${LINK_OPT_BSTATIC}
+  assuan
   ${OPENSSL_LIBRARIES}
+  ${LINK_OPT_BSTATIC}
+  ${LINK_QT5_STATICLIBS}
   ${EXTRA_LIBRARIES}
+  ${LINK_OPT_STATIC}
 )
-
-qt5_use_modules(monero-update Qml Quick)
-
